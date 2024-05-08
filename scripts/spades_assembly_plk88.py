@@ -42,8 +42,10 @@ def filter_bam_and_run_spades(bam,out_prefix):
                 i = i + 1
     a = (matched_strings[str(max_idx)])
     replacement = "$1_$2_$3"
-    str_match_structural_region=r"GCAGTGAAAGATAGGTGACC(.{20})(.*)(.{30})GGTACCCAATTCGCC"
+    str_match_structural_region=r"GCAGTGAAAGATAGGTGACC(.{20})(.*)(.{30})AGTACAGAACGCTGAAGTGAAGAGAGAGCTTAAGCAAAGA"
     str_rep = re.search(str_match_structural_region,a)
+    print(str_rep)
+    print(a)
     if(str_rep is not None):
         a1 = re.search(str_match_structural_region,a).groups()
         guide = a1[0]
@@ -59,7 +61,13 @@ def filter_pairs_one_mapping_to_plasmid(bam, out_prefix):
     samfile= pysam.AlignmentFile(bam,"rb")
     outfile = pysam.AlignmentFile(out_bam,"wb",template=samfile)
     for read in samfile:
-        print(read)
+        if read.is_paired:
+            if(read.reference_name != "plk88"):
+                if(read.next_reference_name != "plk88"):
+                    if(not read.is_supplementary):
+                        ### Ok now checkt he supplemental allign
+                        if(not read.has_tag("SA")):
+                            outfile.write(read)
 
 
 def main():
