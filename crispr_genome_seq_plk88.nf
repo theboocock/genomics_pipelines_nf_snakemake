@@ -3,12 +3,13 @@
 date = new Date().format( 'yyyyMMdd' )
 
 params.help                   = null
-params.ref                    = config.reference
 params.config                 = null
 params.cpu                    = "12"
 params.mem                    = "100"
 params.tmpdir                 = "tmp/"
 params.bulk_fq_sheet          = null
+params.reference              = "/media/theboocock/Data/Dropbox/Postdoc/projects/crispr_coupling/data/tn5_96/saccer3_plk88.fasta"
+params.oligo_table            = "/media/theboocock/Data/Dropbox/Postdoc/projects/crispr_coupling/data/tn5_96/otableLong.RDS"
 
 log.info ""
 log.info "------------------------------------------------------------------------"
@@ -47,7 +48,7 @@ params.output_folder = "BulkGWA-${date}"
 
 /* Software information */
 log.info ""
-log.info "ref                     = ${params.ref}"
+log.info "ref                     = ${params.reference}"
 log.info "cpu                     = ${params.cpu}"
 log.info "mem                     = ${params.mem}Gb"
 log.info "output_folder           = ${params.output_folder}"
@@ -76,21 +77,51 @@ params.high_missing = 0.95
 /* ~~~~~~~~~~~~~~~~~~~ Read in bulk FASTQ information ~~~~~~~~~~~~~~~~~~ */
 /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
 
-File fq_file = new File(params.bulk_fq_sheet)
 
-Channel.from(fq_file.collect { it.tokenize( ',' ) })
-             .map { SM, ID, fq1, fq2 -> [SM, ID, file("${fq1}"), file("${fq2}")] }
-             .into {fqs_align;
-                    fqs_to}
+workflow {
+
+    File fq_file = new File(params.bulk_fq_sheet)
+
+    in_fastas = Channel.from(fq_file.collect { it.tokenize( ',' ) })
+                 .map { SM, ID, fq1, fq2 -> [SM, ID, file("${fq1}"), file("${fq2}")] }
+    File reference = new File("${params.reference}")
+    params.reference_handle = reference.getAbsolutePath()
+
+    perform_bsa_alignment(in_fastas) | 
+        tag_dups
+    assemble_plasmid_and_filter(tag_dups.out.outs) 
+        
+    
+   /*# ce_chrom=Channel
+   #      .from("chrI","chrII","chrIII","chrIV","chrV","chrVI","chrVII","chrVIII","chrIX","chrX","chrXI","chrXII","chrXIII","chrXIV","chrXV","chrXVI")
+   #      .combine(filtered_set_plasmid)
+    #     .set{bam_to_gatk} */
 
 
-/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
-/* ~~~~~~~~~~~~~~~~~~~ Initialize reference sequence ~~~~~~~~~~~~~~~~~~~ */
-/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+    /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+    /* ~~~~~~~~~~~~~~~~~~~ Initialize reference sequence ~~~~~~~~~~~~~~~~~~~ */
+    /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+  /*  File reference = new File("${params.reference}")
+    reference_handle = reference.getAbsolutePath()
+    sample_map = fqs_to.map { "${it[0]}\t${it[0]}.g.vcf.gz" }.collectFile(name: "sample_map.tsv", newLine: true)
+    sample_map.view()
+    bulk_gvcf
+        .groupTuple()
+        .into{g_to_import; g_to_nothing}
 
-File reference = new File("${params.ref}")
-reference_handle = reference.getAbsolutePath()
+    ce_chrom=Channel
+         .from("chrI","chrII","chrIII","chrIV","chrV","chrVI","chrVII","chrVIII","chrIX","chrX","chrXI","chrXII","chrXIII","chrXIV","chrXV","chrXVI")
+         .combine(strain_g)
+         .groupTuple()
+         .combine(sample_map)
+         .into{strain_g_to_import; strain_g_to_nothing}
+    Channel.from("BULK_POPS")
+        .combine(cohort_chrom_vcf)
+        .groupTuple()
+        .into{cohort_vcf_to_concat; cohort_vcf_to_nothing}
+*/
 
+}
 /* 
 =====================================================================
 =================================================================
@@ -102,7 +133,7 @@ reference_handle = reference.getAbsolutePath()
 */ 
 
 /*
-ce_chrom=Channel
+   ce_chrom=Channel
      .from("I","II","III","IV","V","X","MtDNA")
      .combine(fqs_align)
      .println()
@@ -120,18 +151,16 @@ process perform_bsa_alignment {
 
     cpus params.cpu
     memory '12 GB'
-    publishDir "${params.output_folder}/raw_alignments", mode: "copy"
-
     tag { ID }
 
     input:
-        set SM, ID, fq1, fq2 from fqs_align
+        tuple val(SM), val(ID), path(fq1), path(fq2) 
 
     output:
-        set val(SM), file("${ID}.bam"), file("${ID}.bam.bai") into fq_bam_set
+        tuple val(SM), path("${ID}.bam"), path("${ID}.bam.bai") 
 
     """
-    bwa mem -t ${task.cpus} -R '@RG\\tID:${ID}\\tSM:${SM}\\tLB:${SM}_${ID}\\tPL:ILLUMINA' ${reference_handle} ${fq1} ${fq2} | \\
+    bwa mem -t ${task.cpus} -R '@RG\\tID:${ID}\\tSM:${SM}\\tLB:${SM}_${ID}\\tPL:ILLUMINA' ${params.reference_handle} ${fq1} ${fq2} | \\
     sambamba view --nthreads=${task.cpus} --show-progress --sam-input --format=bam --with-header /dev/stdin | \\
     sambamba sort --nthreads=${task.cpus} --show-progress --tmpdir=${params.tmpdir} --out=${ID}.bam /dev/stdin
     sambamba index --nthreads=${task.cpus} ${ID}.bam
@@ -154,11 +183,11 @@ process tag_dups {
     tag { SM }
 
     input:
-        set val(SM), file(bam), file(bami) from fq_bam_set
+        tuple val(SM), path(bam), path(bami) 
 
     output:
-        set val(SM), file("${SM}.bam"), file("${SM}.bam.bai") into SM_bam_marked_set
-        file("${SM}.picard.sam.markduplicates") into duplicates_set
+        tuple val(SM), path("${SM}.bam"), path("${SM}.bam.bai"), emit: outs
+        path("${SM}.picard.sam.markduplicates") 
 
     """
     picard MarkDuplicates I=${bam} \\
@@ -174,7 +203,25 @@ process tag_dups {
     """
 }
 
+process assemble_plasmid_and_filter {
+    
+    cpus params.cpu
+    memory params.mem
 
+    publishDir "${params.output_folders}/filtered_bams_and_edits", mode: "copy"
+    tag {SM}
+    input:
+        tuple val(SM), file(bam), file(bami) 
+    output:
+        tuple val(SM), file("${SM}.bam"), file("${SM}.bam.bai"), emit: outs, optional: true
+        path("${SM}.plasmid.txt"), optional: true
+    """
+        python ${baseDir}/scripts/spades_assembly_plk88.py \\
+        -o ${SM} \\
+        --oligo-table ${params.oligo_table} \\
+        ${bam}
+    """
+}
 
 /* 
    =================================
@@ -186,10 +233,6 @@ process tag_dups {
 ~ ~ ~ > * Generate Interval List  * < ~ ~ ~ 
 =========================================*/
 
-ce_chrom=Channel
-     .from("chrI","chrII","chrIII","chrIV","chrV","chrVI","chrVII","chrVIII","chrIX","chrX","chrXI","chrXII","chrXIII","chrXIV","chrXV","chrXVI")
-     .combine(SM_bam_marked_set)
-     .set{bam_to_gatk}
 
 /*
 ===========================================
@@ -241,11 +284,6 @@ process call_variants_individual {
     """
 }
 
-sample_map = fqs_to.map { "${it[0]}\t${it[0]}.g.vcf.gz" }.collectFile(name: "sample_map.tsv", newLine: true)
-
-bulk_gvcf
-    .groupTuple()
-    .into{g_to_import; g_to_nothing}
 
 /*
 =============================================
@@ -270,13 +308,6 @@ process concat_strain_gvcfs {
         bcftools index --tbi ${SM}.g.vcf.gz
     """
 }
-
-ce_chrom=Channel
-     .from("chrI","chrII","chrIII","chrIV","chrV","chrVI","chrVII","chrVIII","chrIX","chrX","chrXI","chrXII","chrXIII","chrXIV","chrXV","chrXVI")
-     .combine(strain_g)
-     .groupTuple()
-     .combine(sample_map)
-     .into{strain_g_to_import; strain_g_to_nothing}
 
 
  process import_genomics_db {
@@ -348,11 +379,6 @@ process genotype_cohort_gvcf_db {
         
     """
 }
-
-Channel.from("BULK_POPS")
-    .combine(cohort_chrom_vcf)
-    .groupTuple()
-    .into{cohort_vcf_to_concat; cohort_vcf_to_nothing}
 
 /*===============================================
 ~ ~ ~ > *   Concatenate VCFs  * < ~ ~ ~

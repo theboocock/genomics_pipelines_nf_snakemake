@@ -25,7 +25,7 @@ class Region(object):
 
 
 def filter_bam_and_run_spades(bam,out_prefix, oligo_table):
-    out_bam = os.path.join(out_prefix,"plk88.bam")
+    out_bam =  out_prefix + "_plk88.bam"
     samfile = pysam.AlignmentFile(bam,"rb")
     outfile = pysam.AlignmentFile(out_bam,"wb",template=samfile)
     # TODO: Read pairs 
@@ -35,13 +35,13 @@ def filter_bam_and_run_spades(bam,out_prefix, oligo_table):
     ### Run spades ### 
     outfile.close()
     out_path = (outfile.filename.decode())
-    out_fastq = os.path.join(out_prefix,"plk88.fastq")
+    out_fastq = out_prefix + "_plk88.fastq"
     cmd = f"samtools bam2fq {out_path} > {out_fastq}"
     subprocess.check_call(cmd, shell=True) 
-    output_spades = "test/spades"
+    output_spades = "spades"
     cmd_spades = f"plasmidspades.py -s {out_fastq} -o {output_spades}"
     # Final GFA #
-    #subprocess.check_call(cmd_spades, shell=True)
+    subprocess.check_call(cmd_spades, shell=True)
     out_gfa = f"{output_spades}/assembly_graph_after_simplification.gfa"
     matched_strings = {}
     lengths = []
@@ -69,7 +69,7 @@ def filter_bam_and_run_spades(bam,out_prefix, oligo_table):
     if(str_rep is None):
         if(str_rep_rev is not None):
             str_rep = str_rep_rev
-    out_match = os.path.join(out_prefix, "plasmid.txt")
+    out_match = out_prefix + "_plasmid.txt"
     if (str_rep is not None):
         #print(str_rep)
         with open(out_match, 'w') as out_f:
@@ -90,8 +90,8 @@ def filter_bam_and_run_spades(bam,out_prefix, oligo_table):
     dir_path = os.path.dirname(os.path.realpath(__file__))
     out_rscript = os.path.join(dir_path, "check_match.R")
     rscript_cmd = f"/usr/bin/Rscript {out_rscript} {out_match} {oligo_table} {out_prefix}" 
-    #subprocess.check_call(rscript_cmd, shell=True)
-    out_rscript = os.path.join(out_prefix, "combo_match.txt") 
+    subprocess.check_call(rscript_cmd, shell=True)
+    out_rscript = out_prefix + "_combo_match.txt"
     regions_to_remove = list()
     with open(out_rscript) as in_f:
         line = in_f.readline().strip()
@@ -101,16 +101,16 @@ def filter_bam_and_run_spades(bam,out_prefix, oligo_table):
             chrom = l_s[0]
             #print("Line 83")
             #print(chrom)
-            out_fasta = os.path.join(out_prefix,"repair.fasta")
+            out_fasta = out_prefix + "_repair.fasta"
             with open(out_fasta, "w") as out_f:
                out_f.write(">rep\n")
                out_f.write(repair + "\n")
 
             makeblastdb_cmd=f"makeblastdb -in {yeast_genome} -parse_seqids -dbtype nucl"
             subprocess.check_call(makeblastdb_cmd, shell=True)
-            out_blast=os.path.join(out_prefix, "blast.txt")
-            blastn_cmd=f"blastn -query {out_fasta} -db {yeast_genome} -outfmt 6 > {out_blast}"
-            #print(blastn_cmd)
+            out_blast=out_prefix  + "_blast.txt"
+            blastn_cmd=f"blastn -query {out_fasta} -db {yeast_genome} -outfmt 6 -task blastn > {out_blast}"
+            print(blastn_cmd)
             subprocess.check_call(blastn_cmd, shell=True)
             got_match=False
             with open(out_blast) as blast_in:
@@ -135,7 +135,7 @@ def filter_pairs_one_mapping_to_plasmid(bam, out_prefix,regions):
     """
         
     """
-    out_bam = os.path.join(out_prefix,"bam_filtered_scuffed.bam")
+    out_bam = out_prefix+"_bam_filtered_scuffed.bam"
     #bam_sort_qname = os.path.join(out_prefix,"qname_sort.bam") 
     #samtools_sort_by_name = f"samtools sort -n {bam} > {bam_sort_qname}"
     #subprocess.check_call(samtools_sort_by_name, shell=True)
@@ -176,18 +176,19 @@ def filter_pairs_one_mapping_to_plasmid(bam, out_prefix,regions):
     #print(read_list["VH00763:48:AAFKNYMM5:1:1402:55667:31196"])
     
     for qname in read_list:
+        read_l_tmp = read_list[qname]
         try:
-            read_ones = read_list[qname]["r1"]
+            read_ones = read_l_tmp["r1"]
         except:
             next
         reference_namesr1=([read.reference_name == "plk88" for read in read_ones])
         try:
-            read_twos = read_list[qname]["r2"]
+            read_twos = read_l_tmp["r2"]
         except:
             next 
         reference_namesr2=([read.reference_name == "plk88" for read in read_twos])
         try:
-            XA_plk88 = read_list[qname]["XA_plk88"]
+            XA_plk88 = read_l_tmp["XA_plk88"]
             continue
         except:
             pass
@@ -230,6 +231,10 @@ def filter_pairs_one_mapping_to_plasmid(bam, out_prefix,regions):
                 for read in read_ones + read_twos:
                     if read.mapping_quality > MAPQ_THRESHOLD:
                         outfile.write(read)
+    outfile.close()
+    final_bam = out_prefix + "_final.bam"
+    pysam.sort("-o",final_bam, out_bam)
+    pysam.index(final_bam)
         
 
 def main():
@@ -237,13 +242,11 @@ def main():
     parser.add_argument("-o","--out-prefix", help="Output prefix",default="test/")
     parser.add_argument("--oligo-table",default="/media/theboocock/Data/Dropbox/Postdoc/projects/crispr_coupling/data/tn5_96/otableLong.RDS")
     parser.add_argument(dest="bam", help="Input bam")
-
     args = parser.parse_args()
     regions = filter_bam_and_run_spades(args.bam, args.out_prefix, args.oligo_table)
     if(len(regions) > 0):
         filter_pairs_one_mapping_to_plasmid(args.bam, args.out_prefix,regions)
-    else:
-        print("Plasmid error")
+
 
 if __name__=="__main__":
     main()

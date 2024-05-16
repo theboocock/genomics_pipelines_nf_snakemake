@@ -51,7 +51,7 @@ if(matches == 1){
 }else{
     out_df = data.frame(observed_combos = "no_match")
 }
-out_file_test = paste(out_prefix,"combo_match.txt",sep="/")
+out_file_test = paste0(out_prefix,"_combo_match.txt")
 print(out_file_test)
 write.table(out_df, file=out_file_test, col.names=F,row.names=F,quote=F)
 
