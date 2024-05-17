@@ -92,11 +92,10 @@ workflow {
     assemble_plasmid_and_filter(tag_dups.out.outs) 
         
     
-   /*# ce_chrom=Channel
-   #      .from("chrI","chrII","chrIII","chrIV","chrV","chrVI","chrVII","chrVIII","chrIX","chrX","chrXI","chrXII","chrXIII","chrXIV","chrXV","chrXVI")
-   #      .combine(filtered_set_plasmid)
-    #     .set{bam_to_gatk} */
-
+    chrom_combos = scer_chrom=Channel
+        .from("chrI","chrII","chrIII","chrIV","chrV","chrVI","chrVII","chrVIII","chrIX","chrX","chrXI","chrXII","chrXIII","chrXIV","chrXV","chrXVI")
+        .combine(assemble_plasmid_and_filter.out.outs)
+        
 
     /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
     /* ~~~~~~~~~~~~~~~~~~~ Initialize reference sequence ~~~~~~~~~~~~~~~~~~~ */
@@ -149,7 +148,7 @@ workflow {
 
 process perform_bsa_alignment {
 
-    cpus params.cpu
+    cpus 4
     memory '12 GB'
     tag { ID }
 
@@ -175,8 +174,8 @@ process perform_bsa_alignment {
 
 process tag_dups {
 
-    cpus params.cpu
-    memory params.mem
+    cpus 4
+    memory '12 GB'
 
     publishDir "${params.output_folder}/alignments", mode: "copy"
 
@@ -205,16 +204,16 @@ process tag_dups {
 
 process assemble_plasmid_and_filter {
     
-    cpus params.cpu
-    memory params.mem
-
-    publishDir "${params.output_folders}/filtered_bams_and_edits", mode: "copy"
+    cpus 4
+    memory '12 GB'
+    cache false
+    publishDir "${params.output_folder}/filtered_bams_and_edits", mode: "copy"
     tag {SM}
     input:
         tuple val(SM), file(bam), file(bami) 
     output:
-        tuple val(SM), file("${SM}.bam"), file("${SM}.bam.bai"), emit: outs, optional: true
-        path("${SM}.plasmid.txt"), optional: true
+        tuple val(SM), path("${SM}_final.bam"), path("${SM}_final.bam.bai"), emit: outs, optional: true
+        tuple path("${SM}_plasmid.txt"), path("${SM}_blast_with_grna.txt"),path("${SM}_combo_match.txt"), optional: true
     """
         python ${baseDir}/scripts/spades_assembly_plk88.py \\
         -o ${SM} \\

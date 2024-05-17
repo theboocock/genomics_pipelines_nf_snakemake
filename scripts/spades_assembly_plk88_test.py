@@ -58,9 +58,6 @@ def filter_bam_and_run_spades(bam,out_prefix, oligo_table):
                 if(len(seq) > max_len):
                     max_idx = i
                 i = i + 1
-    if(len(matched_strings) == 0):
-        # No assembly # 
-        return list()
     a = (matched_strings[str(max_idx)])
     replacement = "$1_$2_$3"
     str_match_structural_region=r"GCAGTGAAAGATAGGTGACC(.{20})(.*)(.{90})TTCCCGACGAGAGTAAATGGCGAGGATACGTTCTCTATGG(.{30})AGTACAGAACGCTGAAGTGAAGAGAGAGCTTAAGCAAAGA"
@@ -85,6 +82,7 @@ def filter_bam_and_run_spades(bam,out_prefix, oligo_table):
                 barcode=a1[3]
                 out_f.write(guide + "\t" + struct + "\t" + repair + "\t" + barcode+ "\n")
     else:
+        print("HERE")
         return list()
         # Don't run the Rscript if you don't have 
     ### RSCRIPT to check info ###
@@ -109,30 +107,34 @@ def filter_bam_and_run_spades(bam,out_prefix, oligo_table):
                out_f.write(">rep\n")
                out_f.write(repair + "\n")
 
-            makeblastdb_cmd=f"makeblastdb -in {yeast_genome} -parse_seqids -dbtype nucl"
-            subprocess.check_call(makeblastdb_cmd, shell=True)
+            #makeblastdb_cmd=f"makeblastdb -in {yeast_genome} -parse_seqids -dbtype nucl"
+            #subprocess.check_call(makeblastdb_cmd, shell=True)
             out_blast=out_prefix  + "_blast.txt"
+            out_blast_match_column=out_prefix +"_blast_with_grna.txt"
             blastn_cmd=f"blastn -query {out_fasta} -db {yeast_genome} -outfmt 6 -task blastn > {out_blast}"
             subprocess.check_call(blastn_cmd, shell=True)
             got_match=False
-            with open(out_blast) as blast_in:
-                for line in blast_in:
-                    line_s = line.strip().split("\t")
-                    chrom_blast = line_s[1]
-                    if chrom_blast == chrom:
-                        got_match = True
-                    length_match = int(line_s[3])
-                    if (length_match < 80):
-                        continue
-                    start = int(line_s[8])
-                    end = int(line_s[9])
-                    if(start > end):
-                        tmp = start
-                        end = start
-                        start = end
-                    region = chrom_blast +":" + str(start) + "-" + str(end)
-                    reg_tmp = Region(chrom_blast, start-ALIGNMENT_BUFFER, end + ALIGNMENT_BUFFER)
-                    regions_to_remove.append(reg_tmp)
+            with open(out_blast_match_column,"w") as blast_out:
+                with open(out_blast) as blast_in:
+                    for line in blast_in:
+                        blast_out.write(chrom + "\t" line.strip() + "\n")
+                        line_s = line.strip().split("\t")
+                        chrom_blast = line_s[1]
+                        if chrom_blast == chrom:
+                            got_match = True
+
+                        length_match = int(line_s[3])
+                        if (length_match < 80):
+                            continue
+                        start = int(line_s[8])
+                        end = int(line_s[9])
+                        if(start > end):
+                            tmp = start
+                            end = start
+                            start = end
+                        region = chrom_blast +":" + str(start) + "-" + str(end)
+                        reg_tmp = Region(chrom_blast, start-ALIGNMENT_BUFFER, end + ALIGNMENT_BUFFER)
+                        regions_to_remove.append(reg_tmp)
     return regions_to_remove 
 
 MAPQ_THRESHOLD=20
@@ -197,6 +199,8 @@ def filter_pairs_one_mapping_to_plasmid(bam, out_prefix,regions):
             continue
         except:
             pass
+        r1_match = False
+        r2_match = False
         if(not any(reference_namesr1) and not any(reference_namesr2)):
             #print("HERE")
             chrom1 = [read1.reference_name for read1 in read_ones]
