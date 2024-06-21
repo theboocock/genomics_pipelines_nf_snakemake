@@ -6,7 +6,6 @@ import re
 import pandas
 
 from Bio.Seq import Seq
-from Bio import SeqIO
 
 
 yeast_genome="/media/theboocock/Data/Dropbox/Postdoc/projects/crispr_coupling/data/tn5_96/saccer3_plk88.fasta" 
@@ -31,7 +30,7 @@ def filter_bam_and_run_spades(bam,out_prefix, oligo_table,log_f):
     outfile = pysam.AlignmentFile(out_bam,"wb",template=samfile)
     # TODO: Read pairs 
     for read in samfile.fetch("plk88"):
-        if(read.mapping_quality > 5):
+        if(read.mapping_quality > 20):
             outfile.write(read)
     ### Run spades ### 
     outfile.close()
@@ -43,32 +42,27 @@ def filter_bam_and_run_spades(bam,out_prefix, oligo_table,log_f):
     cmd_spades = f"spades.py -s {out_fastq} -o {output_spades}"
     # Final GFA #
     subprocess.check_call(cmd_spades, shell=True)
-    out_gfa = f"{output_spades}/scaffolds.fasta"
+    out_gfa = f"{output_spades}/assembly_graph_after_simplification.gfa"
     matched_strings = {}
     lengths = []
     i = 0
     max_len = 0
-    try:
-        records = list(SeqIO.parse(out_gfa, "fasta"))
-    except:
-        log_f.write("Failed at the assembly step\n")
-        return False
-    if(len(records) == 0):
+    with open(out_gfa) as in_gfa:
+        for line in in_gfa:
+            l_s = line.split("\t")
+            type_str = l_s[0]
+            if type_str == "S":
+                seq= l_s[2]
+                matched_strings[str(i)]=seq
+                lengths.append(len(seq))
+                if(len(seq) > max_len):
+                    max_idx = i
+                i = i + 1
+    if(len(matched_strings) == 0):
         # No assembly # 
         log_f.write("Failed at the assembly step\n")
         return False
-    a = (str(records[0].seq).upper())
-
-    #with open(out_gfa) as in_gfa:
-    #    for line in in_gfa:
-    #        l_s = line.split("\t")
-    #        type_str = l_s[0] #        if type_str == "S":
-    #            seq= l_s[2]
-    #            matched_strings[str(i)]=seq
-    #            lengths.append(len(seq))
-    #            if(len(seq) > max_len):
-    #                max_idx = i
-    #            i = i + 1
+    a = (matched_strings[str(max_idx)])
     replacement = "$1_$2_$3"
     str_match_structural_region=r"GCAGTGAAAGATAGGTGACC(.{20})(.*)(.{90})TTCCCGACGAGAGTAAATGGCGAGGATACGTTCTCTATGG(.{30})"
     str_rep = re.search(str_match_structural_region,a)
@@ -107,7 +101,7 @@ def filter_bam_and_run_spades(bam,out_prefix, oligo_table,log_f):
     with open(out_rscript) as in_f:
         line = in_f.readline().strip()
         if(line == "no_match"):
-            log_f.write("Incorrect oligo combination\n")
+            log_f.write("Incorrect oligo combination")
             return False 
         else:
             # Has a match # 
@@ -117,7 +111,7 @@ def filter_bam_and_run_spades(bam,out_prefix, oligo_table,log_f):
             #print(chrom)
             out_fasta = out_prefix + "_repair.fasta"
             with open(out_fasta, "w") as out_f:
-               out_f.write(">" + chrom + "\n")
+               out_f.write(">rep\n")
                out_f.write(repair + "\n")
 
             makeblastdb_cmd=f"makeblastdb -in {yeast_genome} -parse_seqids -dbtype nucl"

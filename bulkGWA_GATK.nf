@@ -199,7 +199,7 @@ ce_chrom=Channel
 
 process call_variants_individual {
 
-    publishDir "${params.output_folder}/vcfs", mode: "copy"
+    publishDir "${params.output_folder}/vcfs", mode: "link"
 
     cpus params.cpu
     memory '40 GB'
@@ -210,7 +210,7 @@ process call_variants_individual {
         set val(CHROM), val(SM), file(bam), file(bambai) from bam_to_gatk
 
     output:
-        set val(SM), file("${CHROM}_bulk.g.vcf.gz"), file("${CHROM}_bulk.g.vcf.gz.csi") into bulk_gvcf
+        set val(SM), file("${SM}_${CHROM}_bulk.g.vcf.gz"), file("${SM}_${CHROM}_bulk.g.vcf.gz.csi") into bulk_gvcf
 
     """
         gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\

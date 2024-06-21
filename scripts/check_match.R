@@ -4,7 +4,6 @@ args = commandArgs(trailingOnly=T)
 print(args)
 plasmid_in_location = args[1]
 otable = args[2]
-print(plasmid_in_location)
 out_prefix= args[3]
 otable = suppressMessages(readRDS(otable))
 uguides=suppressMessages(as.character(attr(otable, 'uguides')))
@@ -17,13 +16,11 @@ srt=as.character(attr(otable,'struct'))
 in_f = read.delim(plasmid_in_location,sep="\t",header=T)
 
 
-print(in_f)
-print("HERE2")
-maxDist.gRNA=2 
+maxDist.gRNA=0
 #lv edit distance for repair template
-maxDist.repTemp=5 
-#maximum distance for structural region 
-maxDist.struct=5 
+maxDist.repTemp=0
+#maximum distanc for structural region 
+maxDist.struct=0 
 #total number of threads
 nthreads=8
 
@@ -42,7 +39,6 @@ observed_combo= paste0(grna.matches$gRNA.expInd,":",repTemp.matches$repTemp.expI
 
 matches = sum(observed_combo %in% expected_combos)
 matches_idx = which(expected_combos %in% observed_combo)
-print(matches_idx)
 if(matches == 1){
     # Matches an expected combo 
     idx_chrom = otable$guideIndex[matches_idx]
@@ -52,7 +48,6 @@ if(matches == 1){
     out_df = data.frame(observed_combos = "no_match")
 }
 out_file_test = paste0(out_prefix,"_combo_match.txt")
-print(out_file_test)
 write.table(out_df, file=out_file_test, col.names=F,row.names=F,quote=F)
 
 

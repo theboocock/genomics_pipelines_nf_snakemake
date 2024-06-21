@@ -86,16 +86,20 @@ workflow {
                  .map { SM, ID, fq1, fq2 -> [SM, ID, file("${fq1}"), file("${fq2}")] }
     File reference = new File("${params.reference}")
     params.reference_handle = reference.getAbsolutePath()
-
-    perform_bsa_alignment(in_fastas) | 
+ /*   plasmid_spades (in_fastas) */
+    trim_reads(in_fastas)
+    perform_bsa_alignment(trim_reads.out) | 
         tag_dups
-    assemble_plasmid_and_filter(tag_dups.out.outs) 
-        
-    
-    chrom_combos = scer_chrom=Channel
+    assemble_plasmid_and_filter(tag_dups.out.outs)
+     
+         
+    scer_chrom=Channel
         .from("chrI","chrII","chrIII","chrIV","chrV","chrVI","chrVII","chrVIII","chrIX","chrX","chrXI","chrXII","chrXIII","chrXIV","chrXV","chrXVI")
-        .combine(assemble_plasmid_and_filter.out.outs)
-        
+    chrom_combos = scer_chrom.combine(assemble_plasmid_and_filter.out.outs)
+
+    
+    /*chrom_combos.view()*/
+/*    call_variants_individual(chrom_combos) */
 
     /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
     /* ~~~~~~~~~~~~~~~~~~~ Initialize reference sequence ~~~~~~~~~~~~~~~~~~~ */
@@ -145,6 +149,43 @@ workflow {
     Bulk Fastq Alignment
     ====================
 */
+
+process trim_reads {
+    cpus 1
+    memory '12 GB'
+    tag { ID }
+
+    input:
+        tuple val(SM), val(ID), path(fq1), path(fq2)
+        
+    output: 
+        tuple val(SM), val(ID), path("${SM}.r1.filt.fq.gz"), path("${SM}.r2.filt.fq.gz")
+
+    """
+        trimmomatic PE $fq1 $fq2 ${SM}.r1.filt.fq.gz ${SM}.r1.unpaired.fq.gz \\
+        ${SM}.r2.filt.fq.gz ${SM}.r2.unpaired.fq.gz ILLUMINACLIP:NexteraPE-PE.fa:2:30:10:2:True \\
+        LEADING:3 TRAILING:3 MINLEN:36
+    """
+
+
+}
+
+process plasmid_spades {
+    cpus 4
+    memory '12 GB'
+    tag { ID }
+
+    input:
+        tuple val(SM), val(ID), path(fq1), path(fq2)
+        
+    output: 
+        tuple val(SM)
+    """
+        plasmidspades.py -1 ${fq1} -2 ${fq2} -o . 
+        cp scaffold.fasta ${SM}.fasta 
+    """
+
+}
 
 process perform_bsa_alignment {
 
@@ -212,8 +253,9 @@ process assemble_plasmid_and_filter {
     input:
         tuple val(SM), file(bam), file(bami) 
     output:
+        path("${SM}_stats.txt"), emit: stats 
         tuple val(SM), path("${SM}_final.bam"), path("${SM}_final.bam.bai"), emit: outs, optional: true
-        tuple path("${SM}_plasmid.txt"), path("${SM}_blast_with_grna.txt"),path("${SM}_combo_match.txt"), optional: true
+        tuple path("${SM}_plasmid.txt"), path("${SM}_blast.txt"),path("${SM}_combo_match.txt"), optional: true
     """
         python ${baseDir}/scripts/spades_assembly_plk88.py \\
         -o ${SM} \\
@@ -249,10 +291,10 @@ process call_variants_individual {
     clusterOptions = '-V -l highp,h_data=10G'
 
     input:
-        set val(CHROM), val(SM), file(bam), file(bambai) from bam_to_gatk
+        tuple val(CHROM), val(SM), path(bam), path(bambai) 
 
     output:
-        set val(SM), file("${CHROM}_bulk.g.vcf.gz"), file("${CHROM}_bulk.g.vcf.gz.csi") into bulk_gvcf
+        tuple val(SM), path("${CHROM}_bulk.g.vcf.gz"), path("${CHROM}_bulk.g.vcf.gz.csi") 
 
     """
         gatk HaplotypeCaller --java-options "-Xmx${task.memory.toGiga()}g -Xms1g -XX:ConcGCThreads=${task.cpus}" \\
@@ -273,13 +315,13 @@ process call_variants_individual {
             --annotation-group AS_StandardAnnotation \\
             --annotation-group StandardHCAnnotation \\
             --do-not-run-physical-phasing \\
-            -R ${reference_handle} \\
+            -R ${params.reference} \\
             -I ${bam} \\
             -L ${CHROM} \\
-            -O ${CHROM}_bulk.g.vcf   
-        bcftools view -O z ${CHROM}_bulk.g.vcf > ${CHROM}_bulk.g.vcf.gz
-        bcftools index ${CHROM}_bulk.g.vcf.gz
-        rm ${CHROM}_bulk.g.vcf
+            -O ${SM}_${CHROM}_bulk.g.vcf   
+        bcftools view -O z ${SM}_${CHROM}_bulk.g.vcf > ${SM}_${CHROM}_bulk.g.vcf.gz
+        bcftools index ${SM}_${CHROM}_bulk.g.vcf.gz
+        rm ${SM}_${CHROM}_bulk.g.vcf
     """
 }
 
